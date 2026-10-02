@@ -14,6 +14,9 @@ export class LetterPaintModule {
     this.paintedCount = 0;
     this.currentImage = null;
 
+    this.brushMode = "continuous";
+    this.isPainting = false;
+
     // Transformaciones
     this.WORLD_SIZE = 1200;
     this.scale = 1;
@@ -263,24 +266,52 @@ export class LetterPaintModule {
   }
 
   _onPointerDown(e) {
-    this.canvas.setPointerCapture(e.pointerId);
-    this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    this.hasMoved = false;
+     // Evitamos que el navegador intente arrastrar la pantalla o hacer scroll
+     e.preventDefault();  
 
-    if (this.activePointers.size === 1) {
+     this.canvas.setPointerCapture(e.pointerId);
+     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+     this.hasMoved = false;
+
+     if (this.activePointers.size === 1) {
+     const worldPos = this._screenToWorld(e.clientX, e.clientY);
+     const tileSize = this.WORLD_SIZE / this.gridSize;
+     const c = Math.floor(worldPos.x / tileSize);
+     const r = Math.floor(worldPos.y / tileSize);
+
+     const isTargetTile = (
+      r >= 0 && r < this.gridSize &&
+      c >= 0 && c < this.gridSize &&
+      this.grid[r][c] &&
+      !this.grid[r][c].painted &&
+      this.grid[r][c].letter === this.activeLetter
+
+     );
+
+     //MODO PINCEL EN BLOQUE: desactivamos el movimiento de la pantalla (isPanning = false)
+     if (this.brushMode === "continuous" && isTargetTile) {
+      this.isPainting = true;
+      this.isPanning = false; //¡BLOQUEADO! No se movera el lienzo.
+      this.paintTile(r, c);
+     } else {
+      // Solo permitimos mover si NO estamos pintando y tocando el fondo vacio o comopletado.
+      this. isPainting = false;
       this.isPanning = true;
       this.panStart = { x: e.clientX - this.panX, y: e.clientY - this.panY };
-    } else if (this.activePointers.size === 2) {
+     }
+  }  else if (this.activePointers.size === 2) {
+      this.isPainting = false;
       this.isPanning = false;
       const pts = Array.from(this.activePointers.values());
       this.prevPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-    }
+     }
   }
 
   _onPointerMove(e) {
     if (!this.activePointers.has(e.pointerId)) return;
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
+    
+    // Zoom con dos dedos (siempre permitido)
     if (this.activePointers.size === 2) {
       const pts = Array.from(this.activePointers.values());
       const curDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -293,20 +324,27 @@ export class LetterPaintModule {
     }
 
     if (this.activePointers.size === 1) {
+    // Si estamos en modo de pintado continuo (pincel), la imagen NUNCA se debe mover
+    if (this.isPainting && this.brushMode === "continuous") {
       const worldPos = this._screenToWorld(e.clientX, e.clientY);
       const tileSize = this.WORLD_SIZE / this.gridSize;
       const c = Math.floor(worldPos.x / tileSize);
       const r = Math.floor(worldPos.y / tileSize);
 
-      if (r >= 0 && r < this.gridSize && c >= 0 && c < this.gridSize) {
-        const tile = this.grid[r][c];
-        if (tile && !tile.painted && tile.letter === this.activeLetter) {
-          this.paintTile(r, c);
-          this.hasMoved = true;
-          return;
-        }
+      if (
+        r >= 0 && r < this.gridSize &&
+        c >= 0 && c < this.gridSize &&
+        this.grid[r][c] &&
+        !this.grid[r][c].painted &&
+        this.grid[r][c].letter === this.activeLetter
+      ) {
+         this.paintTile(r, c);
       }
-
+      this.hasMoved = true;
+          return; // Salimos de la función para que no llegue a mover el lienzo (isPanning)
+        }
+      
+       // Modo Desplazamiento (solo si NO se esta pintando en ese momento)
       if (this.isPanning) {
         this.panX = e.clientX - this.panStart.x;
         this.panY = e.clientY - this.panStart.y;
